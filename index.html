@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>【最終確定版】太陽系シミュレーター</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
+        .ui-panel {
+            position: absolute; color: white; background: rgba(0,0,0,0.7);
+            padding: 10px; border-radius: 5px; z-index: 100;
+            -webkit-user-select: none; user-select: none;
+        }
+        #infoBox {
+            top: 50%; left: 50%; transform: translate(-50%, -50%); display: none;
+            text-align: center; max-width: 80%; border: 1px solid #fff;
+        }
+        #infoBox h2 { margin-top: 0; }
+        #closeButton { margin-top: 15px; padding: 8px 15px; cursor: pointer; }
+        #puzzle { bottom: 90px; left: 20px; color: #0ff; border: 1px solid #0ff; }
+        #timeControl { bottom: 20px; right: 20px; text-align: center; }
+        #timeControl input[type="range"] { width: 150px; }
+        #solveButton {
+            top: 50%; left: 50%; transform: translate(-50%, -50%); display: none;
+            padding: 20px 40px; font-size: 1.5em; cursor: pointer;
+            background-color: #ff4500; border: 2px solid white; color: white;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255,69,0,0.7); } 70% { box-shadow: 0 0 0 20px rgba(255,69,0,0); } 100% { box-shadow: 0 0 0 0 rgba(255,69,0,0); } }
+    </style>
+</head>
+<body>
+    <div id="infoBox" class="ui-panel"><h2 id="planetName"></h2><p id="planetDescription"></p><button id="closeButton">閉じる</button></div>
+    <div id="puzzle" class="ui-panel"><p>【謎】青と赤の軌道の星が太陽を挟んで並ぶ時を探せ…</p></div>
+    <div id="timeControl" class="ui-panel"><label for="timeSlider">時間の速さ</label><br><input type="range" id="timeSlider" min="0" max="100" value="10"></div>
+    <button id="solveButton" class="ui-panel">直列を観測！</button>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
+</script>
+<script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // --- 基本設定 ---
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 5000);
+    camera.position.set(0, 100, 280);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    // ★★★ 根本修正: 複雑なトーンマッピングを廃止 ★★★
+    // renderer.toneMapping = THREE.ACESFilmicToneMapping; // これが原因でした
+    // renderer.outputColorSpace = THREE.SRGBColorSpace;
+    document.body.appendChild(renderer.domElement);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    // ★★★ 根本修正: 光源設定を「見える」ように変更 ★★★
+    // 全体を明るく照らす環境光を大幅に強化
+    const ambientLight = new THREE.AmbientLight(0xbbbbbb); 
+    scene.add(ambientLight);
+    // 太陽からの点光源（ハイライトと影を作る）
+    const pointLight = new THREE.PointLight(0xffffff, 2.5, 3000); // 強度と範囲を調整
+    scene.add(pointLight);
+
+    // --- 背景の星 ---
+    const bgVertices = []; for (let i = 0; i < 10000; i++) { bgVertices.push(THREE.MathUtils.randFloatSpread(3000)); }
+    const bgStarsGeometry = new THREE.BufferGeometry();
+    bgStarsGeometry.setAttribute('position', new THREE.Float32BufferAttribute(bgVertices, 3));
+    scene.add(new THREE.Points(bgStarsGeometry, new THREE.PointsMaterial({ color: 0xaaaaaa, size: 0.7 })));
+
+    // --- 惑星データ ---
+    const planetData = [
+        { name: '太陽', size: 12, color: 0xffcc00, distance: 0, revSpeed: 0, rotSpeed: 0.001, info: '太陽系の中心に輝く恒星。表面温度は約6000度。1' },
+        { name: '水星', size: 0.8, color: 0xaaaaaa, distance: 25, revSpeed: 4.15, rotSpeed: 0.01, info: '太陽に最も近い惑星。昼と夜の温度差が非常に激しい。お' },
+        { name: '金星', size: 1.5, color: 0xffd700, distance: 38, revSpeed: 1.62, rotSpeed: 0.008, info: '「明けの明星」「宵の明星」とも呼ばれる。硫酸の雲に覆われている。で' },
+        { name: '地球', size: 1.6, color: 0x0077ff, distance: 52, revSpeed: 1, rotSpeed: 0.05, info: '我々が住む生命の星。液体の水が存在する唯一の惑星。う' },
+        { name: '火星', size: 1.2, color: 0xff5733, distance: 70, revSpeed: 0.53, rotSpeed: 0.045, info: '「赤い惑星」と呼ばれる。かつて水が流れていた痕跡がある。周' },
+        { name: '木星', size: 6, color: 0xffa500, distance: 110, revSpeed: 0.08, rotSpeed: 0.1, info: '太陽系最大の惑星。巨大なガスの渦「大赤斑」が有名。年' },
+        { name: '土星', size: 5, color: 0xf0e68c, distance: 160, revSpeed: 0.03, rotSpeed: 0.09, info: '氷と岩石でできた美しい環を持つ。環の直径は28万kmにも及ぶ。め' },
+        { name: '天王星', size: 4, color: 0xadd8e6, distance: 210, revSpeed: 0.012, rotSpeed: 0.07, info: 'ほぼ横倒しの状態で自転する氷の惑星。団' },
+        { name: '海王星', size: 3.8, color: 0x0000ff, distance: 260, revSpeed: 0.006, rotSpeed: 0.06, info: '太陽系で最も外側にある惑星。メタンにより青く見える。と' }
+    ];
+
+    // --- 惑星・軌道の生成 ---
+    const celestialObjects = [];
+    const textureLoader = new THREE.TextureLoader();
+    let earth, mars;
+    planetData.forEach(data => {
+        const pivot = new THREE.Object3D(); scene.add(pivot);
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(data.size, 32, 32), new THREE.MeshPhongMaterial({ color: data.color }));
+        mesh.position.x = data.distance; mesh.userData = data; pivot.add(mesh);
+        if (data.name === '太陽') {
+            mesh.material.emissive.set(data.color); // 太陽は自己発光
+            mesh.material.emissiveIntensity = 1.5;
+        }
+        if (data.distance > 0) {
+            const ringGeometry = new THREE.RingGeometry(data.distance - 0.2, data.distance + 0.2, 128);
+            let ringColor = 0x555555;
+            if (data.name === '地球') ringColor = 0x0077ff;
+            if (data.name === '火星') ringColor = 0xff5733;
+            const ring = new THREE.Mesh(ringGeometry, new THREE.MeshBasicMaterial({ color: ringColor, side: THREE.DoubleSide }));
+            ring.rotation.x = -Math.PI / 2; scene.add(ring);
+        }
+        const obj = { name: data.name, mesh, pivot, revolutionSpeed: data.revSpeed, rotationSpeed: data.rotSpeed };
+        celestialObjects.push(obj);
+        if (data.name === '地球') earth = obj;
+        if (data.name === '火星') mars = obj;
+        if (data.name === '土星') {
+            const ringGeo = new THREE.RingGeometry(8, 12, 64);
+            const ringMat = new THREE.MeshBasicMaterial({ map: textureLoader.load('https://raw.githubusercontent.com/iondrimba/images/main/saturn_ring.png'), side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
+            const saturnRing = new THREE.Mesh(ringGeo, ringMat); saturnRing.rotation.x = -Math.PI * 0.4; pivot.add(saturnRing);
+        }
+    });
+    const moonPivot = new THREE.Object3D(); earth.mesh.add(moonPivot);
+    const moonMesh = new THREE.Mesh(new THREE.SphereGeometry(0.5), new THREE.MeshPhongMaterial({ color: 0xcccccc }));
+    moonMesh.position.x = 4; moonMesh.userData = { name: '月', info: '地球の唯一の自然衛星。' }; moonPivot.add(moonMesh);
+    celestialObjects.push({ name: '月', mesh: moonMesh, pivot: moonPivot, revolutionSpeed: 12, rotationSpeed: 0.01 });
+
+    // --- イベント処理 (タップ/クリック) ---
+    const raycaster = new THREE.Raycaster(); const pointer = new THREE.Vector2();
+    function handlePointerDown(event) {
+        if (event.target.closest('.ui-panel')) return;
+        const touch = event.changedTouches ? event.changedTouches[0] : event;
+        pointer.x = (touch.clientX / window.innerWidth) * 2 - 1;
+        pointer.y = - (touch.clientY / window.innerHeight) * 2 + 1;
+        raycaster.setFromCamera(pointer, camera);
+        const intersects = raycaster.intersectObjects(celestialObjects.map(o => o.mesh));
+        if (intersects.length > 0) {
+            const data = intersects[0].object.userData;
+            document.getElementById('planetName').innerText = data.name;
+            document.getElementById('planetDescription').innerText = data.info;
+            document.getElementById('infoBox').style.display = 'block';
+        }
+    }
+    window.addEventListener('pointerdown', handlePointerDown);
+    document.getElementById('closeButton').onclick = () => { document.getElementById('infoBox').style.display = 'none'; };
+
+    // --- 時間操作 ---
+    let timeScale = 10;
+    document.getElementById('timeSlider').addEventListener('input', (event) => { timeScale = Number(event.target.value); });
+    
+    // --- 謎解きロジック ---
+    let puzzleSolved = false; let isAlignmentChance = false;
+    const solveButton = document.getElementById('solveButton');
+    solveButton.onclick = () => {
+        if (isAlignmentChance && !puzzleSolved) {
+            puzzleSolved = true;
+            document.getElementById('puzzle').innerHTML = '<h2>【更なる謎！】</h2><p>全ての惑星を観測した時、/nそこに見えてくるキーワードは？</p>';
+            solveButton.style.display = 'none';
+        }
+    };
+
+    // --- アニメーションループ ---
+    function animate() {
+        requestAnimationFrame(animate);
+        const speedFactor = timeScale * 0.001;
+        celestialObjects.forEach(obj => {
+            if(obj.pivot) obj.pivot.rotation.y += obj.revolutionSpeed * speedFactor;
+            if(obj.mesh) obj.mesh.rotation.y += obj.rotationSpeed * speedFactor * 10;
+        });
+        if (!puzzleSolved) {
+            const earthAngle = earth.pivot.rotation.y % (2 * Math.PI);
+            const marsAngle = mars.pivot.rotation.y % (2 * Math.PI);
+            let angleDiff = Math.abs(earthAngle - marsAngle);
+            if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+            const alignmentCondition = Math.abs(angleDiff - Math.PI) < 0.05;
+            if (alignmentCondition && !isAlignmentChance) {
+                isAlignmentChance = true; solveButton.style.display = 'block';
+            } else if (!alignmentCondition && isAlignmentChance) {
+                isAlignmentChance = false; solveButton.style.display = 'none';
+            }
+        }
+        controls.update();
+        renderer.render(scene, camera);
+    }
+    animate();
+    window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+</script>
+</body>
+</html>
